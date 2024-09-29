@@ -50,6 +50,7 @@ class DestinationTaskLauncherTest {
     @Inject lateinit var taskLauncher: DestinationTaskLauncher
     @Inject lateinit var streamsManager: StreamsManager
     @Inject lateinit var checkpointManager: MockCheckpointManager
+    @Inject lateinit var mockExceptionHandler: MockExceptionHandler
 
     @Inject lateinit var mockSetupTaskFactory: MockSetupTaskFactory
     @Inject lateinit var mockSpillToDiskTaskFactory: MockSpillToDiskTaskFactory
@@ -65,10 +66,13 @@ class DestinationTaskLauncherTest {
     class MockSetupTaskFactory : SetupTaskFactory {
         val hasRun: Channel<Unit> = Channel(Channel.UNLIMITED)
 
-        override fun make(taskLauncher: DestinationTaskLauncher): SetupTask {
+        override fun make(
+            taskLauncher: DestinationTaskLauncher,
+        ): SetupTask {
             return object : SetupTask {
                 override suspend fun execute() {
                     hasRun.send(Unit)
+                    throw RuntimeException("Setup task failed")
                 }
             }
         }
@@ -113,6 +117,7 @@ class DestinationTaskLauncherTest {
             return object : OpenStreamTask {
                 override suspend fun execute() {
                     streamHasRun[stream]?.send(Unit)
+                    throw RuntimeException("Open stream task failed")
                 }
             }
         }
@@ -243,11 +248,28 @@ class DestinationTaskLauncherTest {
 
     class MockBatch(override val state: Batch.State) : Batch
 
+    @Singleton
+    @Requires(env = ["DestinationTaskLauncherTest"])
+    class MockExceptionHandler : DestinationTaskLauncherExceptionHandler {
+        val syncFailureChannel = Channel<Throwable>(Channel.UNLIMITED)
+        val streamFailureChannel = Channel<Throwable>(Channel.UNLIMITED)
+
+        override suspend fun handleSyncFailure(t: Throwable) {
+            syncFailureChannel.send(t)
+        }
+
+        override suspend fun handleStreamFailure(t: Throwable) {
+            streamFailureChannel.send(t)
+        }
+    }
+
     @Test
-    fun testStart() = runTest {
+    fun testStartWithSetupFailure() = runTest {
+        // This validates both that start runs setup AND that setup's failure is handled.
         launch { taskRunner.run() }
         taskLauncher.start()
         mockSetupTaskFactory.hasRun.receive()
+        Assertions.assertTrue(mockExceptionHandler.syncFailureChannel.receive() is RuntimeException)
         mockSpillToDiskTaskFactory.streamHasRun.values.forEach { it.receive() }
         taskLauncher.stop()
     }
@@ -257,6 +279,12 @@ class DestinationTaskLauncherTest {
         launch { taskRunner.run() }
         taskLauncher.handleSetupComplete()
         mockOpenStreamTaskFactory.streamHasRun.values.forEach { it.receive() }
+
+        repeat(mockOpenStreamTaskFactory.streamHasRun.size) {
+            Assertions.assertTrue(
+                mockExceptionHandler.streamFailureChannel.receive() is RuntimeException
+            )
+        }
         taskLauncher.stop()
     }
 
