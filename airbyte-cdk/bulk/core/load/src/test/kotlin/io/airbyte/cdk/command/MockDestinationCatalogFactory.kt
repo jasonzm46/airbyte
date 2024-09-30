@@ -10,15 +10,11 @@ import io.airbyte.cdk.data.ObjectType
 import io.airbyte.cdk.data.StringType
 import io.micronaut.context.annotation.Factory
 import io.micronaut.context.annotation.Primary
-import io.micronaut.context.annotation.Replaces
 import io.micronaut.context.annotation.Requires
-import jakarta.inject.Named
 import jakarta.inject.Singleton
 
 @Factory
-@Replaces(factory = DestinationCatalogFactory::class)
-@Requires(env = ["test"])
-class MockCatalogFactory : DestinationCatalogFactory {
+class MockDestinationCatalogFactory : DestinationCatalogFactory {
     companion object {
         val stream1 =
             DestinationStream(
@@ -55,8 +51,8 @@ class MockCatalogFactory : DestinationCatalogFactory {
     }
 
     @Singleton
-    @Named("mockCatalog")
     @Primary
+    @Requires(env = ["MockDestinationCatalog"])
     override fun make(): DestinationCatalog {
         return DestinationCatalog(streams = listOf(stream1, stream2))
     }

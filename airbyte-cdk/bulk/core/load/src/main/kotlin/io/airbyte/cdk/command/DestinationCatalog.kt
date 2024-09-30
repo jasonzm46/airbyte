@@ -16,6 +16,14 @@ data class DestinationCatalog(val streams: List<DestinationStream> = emptyList()
     private val byDescriptor: Map<DestinationStream.Descriptor, DestinationStream> =
         streams.associateBy { it.descriptor }
 
+    init {
+        if (streams.isEmpty()) {
+            throw IllegalArgumentException(
+                "Catalog must have at least one stream: check that files are in the correct location and/or that your test catalog is being injected properly (ie, include the `MockDestinationCatalog` env)."
+            )
+        }
+    }
+
     fun getStream(name: String, namespace: String?): DestinationStream {
         val descriptor = DestinationStream.Descriptor(namespace = namespace, name = name)
         return byDescriptor[descriptor]
